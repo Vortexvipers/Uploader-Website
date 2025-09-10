@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Uploader - Termux Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .drop-zone {
+            transition: all 0.3s ease;
+        }
+        .drop-zone.dragover {
+            background-color: rgba(59, 130, 246, 0.1);
+            border-color: rgb(59, 130, 246);
+            transform: scale(1.02);
+        }
+        .file-item {
+            animation: slideIn 0.3s ease-out;
+        }
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        .progress-bar {
+            transition: width 0.3s ease;
+        }
+        .toast {
+            animation: toastIn 0.3s ease-out;
+        }
+        @keyframes toastIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        .preview-image {
+            max-width: 100%;
+            max-height: 300px;
+            object-fit: contain;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <!-- Header -->
+    <header class="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-40">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center">
+                    <i class="fas fa-cloud-upload-alt text-blue-600 text-2xl mr-3"></i>
+                    <h1 class="text-xl font-bold text-gray-900">File Uploader</h1>
+                    <span class="ml-3 text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">Termux Edition</span>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <button onclick="refreshFiles()" class="text-gray-600 hover:text-gray-900 transition-colors">
+                        <i class="fas fa-sync-alt mr-2"></i>Refresh
+                    </button>
+                    <button onclick="showServerInfo()" class="text-blue-600 hover:text-blue-700 transition-colors">
+                        <i class="fas fa-info-circle mr-2"></i>Info
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- Upload Section -->
+        <section class="bg-white rounded-lg shadow-md p-6 mb-8">
+            <h2 class="text-2xl font-bold text-gray-900 mb-6">Upload File Baru</h2>
+            
+            <!-- Drop Zone -->
+            <div id="dropZone" class="drop-zone border-2 border-dashed border-gray-300 rounded-lg p-12 text-center cursor-pointer hover:border-blue-400 transition-colors">
+                <i class="fas fa-cloud-upload-alt text-6xl text-gray-400 mb-4"></i>
+                <p class="text-xl text-gray-600 mb-2">Drag & drop file di sini</p>
+                <p class="text-gray-500 mb-4">atau</p>
+                <button class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors">
+                    <i class="fas fa-folder-open mr-2"></i>Pilih File
+                </button>
+                <input type="file" id="fileInput" class="hidden" multiple>
+                <p class="text-sm text-gray-500 mt-4">Maksimal 100MB per file</p>
+            </div>
+
+            <!-- Upload Progress -->
+            <div id="uploadProgress" class="hidden mt-6">
+                <h3 class="text-lg font-semibold mb-3">Mengupload...</h3>
+                <div class="space-y-3" id="progressList"></div>
+            </div>
+        </section>
+
+        <!-- File List Section -->
+        <section class="bg-white rounded-lg shadow-md p-6">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 space-y-4 sm:space-y-0">
+                <h2 class="text-2xl font-bold text-gray-900">File Terupload</h2>
+                <div class="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4 w-full sm:w-auto">
+                    <input type="text" id="searchInput" placeholder="Cari file..." 
+                           class="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <select id="sortSelect" class="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="newest">Terbaru</option>
+                        <option value="oldest">Terlama</option>
+                        <option value="name">Nama (A-Z)</option>
+                        <option value="size">Ukuran</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- File Grid -->
+            <div id="fileGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <!-- Files will be dynamically added here -->
+            </div>
+
+            <!-- Empty State -->
+            <div id="emptyState" class="text-center py-12">
+                <i class="fas fa-inbox text-6xl text-gray-300 mb-4"></i>
+                <p class="text-xl text-gray-500">Belum ada file yang diupload</p>
+                <p class="text-gray-400 mt-2">Upload file pertama Anda di atas</p>
+            </div>
+        </section>
+    </main>
+
+    <!-- Toast Container -->
+    <div id="toastContainer" class="fixed top-20 right-4 z-50 space-y-2"></div>
+
+    <!-- Modal for File Details -->
+    <div id="fileModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-bold">Detail File</h3>
+                <button onclick="closeModal()" class="text-gray-500 hover:text-gray-700">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+            <div id="modalContent"></div>
+        </div>
+    </div>
+
+    <!-- Server Info Modal -->
+    <div id="serverInfoModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-lg p-6 max-w-md w-full">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-bold">Informasi Server</h3>
+                <button onclick="closeServerInfo()" class="text-gray-500 hover:text-gray-700">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+            <div class="space-y-3">
+                <div class="bg-gray-50 p-3 rounded-lg">
+                    <p class="text-sm text-gray-600">Server URL</p>
+                    <p class="font-mono text-sm break-all" id="serverUrl">Loading...</p>
+                </div>
+                <div class="bg-gray-50 p-3 rounded-lg">
+                    <p class="text-sm text-gray-600">Status</p>
+                    <p class="text-green-600 font-medium">
+                        <i class="fas fa-circle text-xs mr-2"></i>Online
+                    </p>
+                </div>
+                <div class="bg-gray-50 p-3 rounded-lg">
+                    <p class="text-sm text-gray-600">Upload Folder</p>
+                    <p class="font-mono text-sm">./uploads</p>
+                </div>
+                <div class="bg-gray-50 p-3 rounded-lg">
+                    <p class="text-sm text-gray-600">Max File Size</p>
+                    <p class="font-medium">100MB</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const API_BASE = window.location.origin;
+        let uploadedFiles = [];
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            setupEventListeners();
+            loadFiles();
+            updateServerUrl();
+        });
+
+        // Setup event listeners
+        function setupEventListeners() {
+            const dropZone = document.getElementById('dropZone');
+            const fileInput = document.getElementById('fileInput');
+            const searchInput = document.getElementById('searchInput');
+            const sortSelect = document.getElementById('sortSelect');
+
+            // Drop zone events
+            dropZone.addEventListener('click', () => fileInput.click());
+            dropZone.addEventListener('dragover', handleDragOver);
+            dropZone.addEventListener('dragleave', handleDragLeave);
+            dropZone.addEventListener('drop', handleDrop);
+
+            // File input change
+            fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
+
+            // Search and sort
+            searchInput.addEventListener('input', renderFiles);
+            sortSelect.addEventListener('change', renderFiles);
+        }
+
+        // Update server URL
+        function updateServerUrl() {
+            document.getElementById('serverUrl').textContent = window.location.origin;
+        }
+
+        // Drag and drop handlers
+        function handleDragOver(e) {
+            e.preventDefault();
+            e.currentTarget.classList.add('dragover');
+        }
+
+        function handleDragLeave(e) {
+            e.currentTarget.classList.remove('dragover');
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            e.currentTarget.classList.remove('dragover');
+            handleFiles(e.dataTransfer.files);
+        }
+
+        // Handle file upload
+        async function handleFiles(files) {
+            const maxSize = 100 * 1024 * 1024; // 100MB
+            
+            for (let file of files) {
+                if (file.size > maxSize) {
+                    showToast(`File ${file.name} terlalu besar (maksimal 100MB)`, 'error');
+                    continue;
+                }
+
+                await uploadFile(file);
+            }
+        }
+
+        // Upload file to server
+        async function uploadFile(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const progressList = document.getElementById('progressList');
+            const uploadProgress = document.getElementById('uploadProgress');
+            
+            uploadProgress.classList.remove('hidden');
+            
+            const progressItem = document.createElement('div');
+            progressItem.className = 'bg-gray-100 rounded-lg p-4';
+            progressItem.innerHTML = `
+                <div class="flex justify-between items-center mb-2">
+                    <span class="font-medium truncate">${file.name}</span>
+                    <span class="text-sm text-gray-600 ml-2">${formatFileSize(file.size)}</span>
+                </div>
+                <div class="w-full bg-gray-300 rounded-full h-2">
+                    <div class="progress-bar bg-blue-600 h-2 rounded-full" style="width: 0%"></div>
+                </div>
+            `;
+            progressList.appendChild(progressItem);
+
+            const progressBar = progressItem.querySelector('.progress-bar');
+
+            try {
+                const xhr = new XMLHttpRequest();
+                
+                xhr.upload.addEventListener('progress', (e) => {
+                    if (e.lengthComputable) {
+                        const percentComplete = (e.loaded / e.total) * 100;
+                        progressBar.style.width = `${percentComplete}%`;
+                    }
+                });
+
+                xhr.addEventListener('load', () => {
+                    if (xhr.status === 200) {
+                        const response = JSON.parse(xhr.responseText);
+                        progressBar.style.width = '100%';
+                        
+                        setTimeout(() => {
+                            progressItem.remove();
+                            if (progressList.children.length === 0) {
+                                uploadProgress.classList.add('hidden');
+                            }
+                            loadFiles();
+                            showToast(`File ${file.name} berhasil diupload!`, 'success');
+                        }, 500);
+                    } else {
+                        throw new Error('Upload failed');
+                    }
+                });
+
+                xhr.addEventListener('error', () => {
+                    throw new Error('Network error');
+                });
+
+                xhr.open('POST', `${API_BASE}/api/upload`, true);
+                xhr.send(formData);
+
+            } catch (error) {
+                console.error('Upload error:', error);
+                showToast(`Gagal upload ${file.name}: ${error.message}`, 'error');
+                progressItem.remove();
+            }
+        }
+
+        // Load files from server
+        async function loadFiles() {
+            try {
+                const response = await fetch(`${API_BASE}/api/files`);
+                if (!response.ok) throw new Error('Failed to load files');
+                
+                uploadedFiles = await response.json();
+                renderFiles();
+            } catch (error) {
+                console.error('Load files error:', error);
+                showToast('Gagal memuat daftar file', 'error');
+            }
+        }
+
+        // Refresh files
+        function refreshFiles() {
+            loadFiles();
+            showToast('Memperbarui daftar file...', 'info');
+        }
+
+        // Render files
+        function renderFiles() {
+            const fileGrid = document.getElementById('fileGrid');
+            const emptyState = document.getElementById('emptyState');
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+            const sortBy = document.getElementById('sortSelect').value;
+
+            // Filter files
+            let filteredFiles = uploadedFiles.filter(file => 
+                file.filename.toLowerCase().includes(searchTerm)
+            );
+
+            // Sort files
+            filteredFiles.sort((a, b) => {
+                switch(sortBy) {
+                    case 'newest':
+                        return new Date(b.uploadDate) - new Date(a.uploadDate);
+                    case 'oldest':
+                        return new Date(a.uploadDate) - new Date(b.uploadDate);
+                    case 'name':
+                        return a.filename.localeCompare(b.filename);
+                    case 'size':
+                        return b.size - a.size;
+                    default:
+                        return 0;
+                }
+            });
+
+            // Clear grid
+            fileGrid.innerHTML = '';
+
+            if (filteredFiles.length === 0) {
+                emptyState.classList.remove('hidden');
+                fileGrid.classList.add('hidden');
+            } else {
+                emptyState.classList.add('hidden');
+                fileGrid.classList.remove('hidden');
+
+                filteredFiles.forEach(file => {
+                    const fileCard = createFileCard(file);
+                    fileGrid.appendChild(fileCard);
+                });
+            }
+        }
+
+        // Create file card
+        function createFileCard(file) {
+            const card = document.createElement('div');
+            card.className = 'file-item bg-gray-50 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer';
+            
+            const icon = getFileIcon(file.filename);
+            const uploadDate = new Date(file.uploadDate).toLocaleDateString('id-ID');
+            
+            card.innerHTML = `
+                <div class="flex items-start justify-between mb-3">
+                    <div class="flex items-center flex-1 min-w-0">
+                        <i class="${icon} text-3xl text-blue-600 mr-3 flex-shrink-0"></i>
+                        <div class="min-w-0 flex-1">
+                            <h3 class="font-semibold text-gray-900 truncate">${file.filename}</h3>
+                            <p class="text-sm text-gray-500">${formatFileSize(file.size)}</p>
+                        </div>
+                    </div>
+                    <button onclick="showFileDetails('${file.filename}')" class="text-gray-400 hover:text-gray-600 ml-2 flex-shrink-0">
+                        <i class="fas fa-ellipsis-v"></i>
+                    </button>
+                </div>
+                <div class="flex items-center justify-between">
+                    <span class="text-xs text-gray-500">${uploadDate}</span>
+                    <div class="flex space-x-2">
+                        <button onclick="downloadFile('${file.filename}')" class="text-blue-600 hover:text-blue-700 transition-colors" title="Download">
+                            <i class="fas fa-download"></i>
+                        </button>
+                        <button onclick="copyLink('${file.downloadUrl}')" class="text-green-600 hover:text-green-700 transition-colors" title="Salin Link">
+                            <i class="fas fa-link"></i>
+                        </button>
+                        <button onclick="deleteFile('${file.filename}')" class="text-red-600 hover:text-red-700 transition-colors" title="Hapus">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            return card;
+        }
+
+        // Get file icon based on extension
+        function getFileIcon(filename) {
+            const ext = filename.split('.').pop().toLowerCase();
+            const iconMap = {
+                'jpg': 'fas fa-image',
+                'jpeg': 'fas fa-image',
+                'png': 'fas fa-image',
+                'gif': 'fas fa-image',
+                'bmp': 'fas fa-image',
+                'svg': 'fas fa-image',
+                'webp': 'fas fa-image',
+                'mp4': 'fas fa-video',
+                'avi': 'fas fa-video',
+                'mkv': 'fas fa-video',
+                'mov': 'fas fa-video',
+                'wmv': 'fas fa-video',
+                'flv': 'fas fa-video',
+                'mp3': 'fas fa-music',
+                'wav': 'fas fa-music',
+                'flac': 'fas fa-music',
+                'aac': 'fas fa-music',
+                'ogg': 'fas fa-music',
+                'pdf': 'fas fa-file-pdf',
+                'doc': 'fas fa-file-word',
+                'docx': 'fas fa-file-word',
+                'xls': 'fas fa-file-excel',
+                'xlsx': 'fas fa-file-excel',
+                'ppt': 'fas fa-file-powerpoint',
+                'pptx': 'fas fa-file-powerpoint',
+                'txt': 'fas fa-file-alt',
+                'zip': 'fas fa-file-archive',
+                'rar': 'fas fa-file-archive',
+                '7z': 'fas fa-file-archive',
+                'tar': 'fas fa-file-archive',
+                'gz': 'fas fa-file-archive'
+            };
+            return iconMap[ext] || 'fas fa-file';
+        }
+
+        // File operations
+        function downloadFile(filename) {
+            window.open(`${API_BASE}/api/download/${filename}`, '_blank');
+            showToast('Mengunduh file...', 'info');
+        }
+
+        function copyLink(url) {
+            const fullUrl = window.location.origin + url;
+            navigator.clipboard.writeText(fullUrl).then(() => {
+                showToast('Link berhasil disalin!', 'success');
+            }).catch(() => {
+                showToast('Gagal menyalin link', 'error');
+            });
+        }
+
+        async function deleteFile(filename) {
+            if (confirm('Apakah Anda yakin ingin menghapus file ini?')) {
+                
